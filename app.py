@@ -53,45 +53,57 @@ def obtener_status():
 def enviarDatosToArduino():
     comando_arduino = request.json
 
-    # /////--Manejo si los datos son válidos/tienen valor--\\\\\
-    if comando_arduino and 'accion' in comando_arduino and 'maquina' in comando_arduino:
+    if not (comando_arduino and 'accion' in comando_arduino and 'maquina' in comando_arduino):
+         # /////--Si al enviar los datos son inválidos/vacíos--\\\\\
+        return jsonify({
+            "Envío de datos" : False,
+            "Mensaje" : "Comando inválido/Comando vacío"
+        }), 400
 
-        accion = comando_arduino.get('accion')
-        maquina = comando_arduino.get('maquina')
+    accion = comando_arduino.get('accion')
+    maquina = comando_arduino.get('maquina')
 
-        # Mensaje que enviará la app
-        mensaje_serial_arduino = f"{accion.upper()} para {maquina.upper()}"
+    if accion.upper() == 'START':
+        ultimo_estado = obten_ultim_estado()
 
-        # <<<<--Manejo de errores en serial-->>>>
-        try:
-            with serial.Serial(PUERTO_SERIAL, CANT_BAUTIOS, timeout=2) as ser: # ser: palabra clave para serial
-                ser.write(mensaje_serial_arduino.encode('utf-8')) # .write : función de envío
-                # .encode('utf-8'): convertir el mensaje string a byte para enviarlos
+        if ultimo_estado and ultimo_estado.get('temperatura', 0.0) >= 50.0:
+            ultima_temperatura = ultimo_estado.get('temperatura')
+            print(f"**ERROR CRITICO** \n La temperatura supera los 50.0°C = {ultima_temperatura}°C")
+            return jsonify({
+                "EXITO" : False,
+                "Mensaje" : '**ERROR CRITICO** La temperatura supera los 50.0°C',
+                "Temperatura" : ultima_temperatura,
+                "Comando" : accion,
+                "Maquina" : maquina
+            }), 400
+        
+    # Mensaje que enviará la app
+    mensaje_serial_arduino = f"{accion.upper()} para {maquina.upper()}"
 
-                print(f"***ENVÍO DE DATOS EXITOSO*** {mensaje_serial_arduino.strip}")
+    # <<<<--Manejo de errores en serial-->>>>
+    try:
+        with serial.Serial(PUERTO_SERIAL, CANT_BAUTIOS, timeout=2) as ser: # ser: palabra clave para serial
+            ser.write(mensaje_serial_arduino.encode('utf-8')) # .write : función de envío
+            # .encode('utf-8'): convertir el mensaje string a byte para enviarlos
+            print(f"***ENVÍO DE DATOS EXITOSO*** {mensaje_serial_arduino.strip}")
 
-                return jsonify({
+            return jsonify({
                     "Recepción de datos" : True,
                     "Comando"  : accion,
                     "Maquina" : maquina
-                }), 200
+            }), 200
             
         # <<<<--Manejo de errores-->>>>
-        except serial.SerialException as error:
-            #Mensaje del error
-            print(f"***ERROR CRÍTICO*** {error} **FALLA PUERTO** : {PUERTO_SERIAL}")
+    except serial.SerialException as error:
+        #Mensaje del error
+        print(f"***ERROR CRÍTICO*** {error} **FALLA PUERTO** : {PUERTO_SERIAL}")
 
-            return jsonify({
-                "Recepción de datos" : False,
-                "Error" : f"{error}",
-                "Mensaje" : f"No se logró enviar datos a la máquina. ***ERROR PUERTO*** : {PUERTO_SERIAL}"
-            }), 500
+        return jsonify({
+            "Recepción de datos" : False,
+            "Error" : f"{error}",
+            "Mensaje" : f"No se logró enviar datos a la máquina. ***ERROR PUERTO*** : {PUERTO_SERIAL}"
+        }), 500
     
-    # /////--Si al enviar los datos son inválidos/vacíos--\\\\\
-    return jsonify({
-        "Envío de datos" : False,
-        "Mensaje" : "Comando inválido/Comando vacío"
-    }), 400
 
 # //////////////////
 #   Ejecutar app
