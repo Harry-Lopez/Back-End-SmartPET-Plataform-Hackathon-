@@ -17,6 +17,10 @@ def crear_db():
 def config_DB():
     # Le damos el valor que se retornó de la función crear_db
     connDB = crear_db()
+
+    if connDB is None:
+        print("***ERROR CRÍTICO*** No se logró establecer la conexión con la data base")
+        return False
     # Estructura if para manejo de errores (Se ejecuta solo cuando 'connDB' fué retornado)
     if connDB:
         # Manejo de errores si ocurre un error al inicializar la D.B. o la tabla
@@ -31,12 +35,28 @@ def config_DB():
                     estado_motor TEXT NOT NULL
                 )"""
             )
-            connDB.commit()
             print('Base de datos SQLite inicializada, tabla "historial_estado" lista')
+
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS "usuarios_modo_operador" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    complet_name TEXT NOT NULL,
+                    codigo_institucional TEXT NOT NULL UNIQUE,
+                    contacto TEXT NOT NULL,
+                    clave_hash TEXT,
+                    puesto TEXT DEFAULT 'operador',
+                    estado TEXT DEFAULT 'PENDIENTE'
+                )"""
+            )
+            print('Base de datos SQLite inicializada, tabla "usuarios_modo_operador" lista')
+
+            connDB.commit()
+            print("**EXITO** Bases de datos inicializadas correctamente")
         except sql.Error as error:
              print(f"***ERROR al inicializar la base de datos SQLite***: {error}")
         finally:
-             connDB.close()
+            if connDB:
+                connDB.close()
 
 def guardar_new_status(datos : dict[str,any]) ->  bool:
     connDB = crear_db()
