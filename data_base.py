@@ -1,6 +1,14 @@
 import sqlite3 as sql
 import time
 from typing import Dict, Any
+import hashlib
+import os
+import secrets
+
+hash = hashlib.sha256 # Variable que usa el algoritmo sha256 de la librería hashlib
+mi_contraseña = "HolaMundo1234" # Variable de nuestra contraseña en texto plano
+hash.update(mi_contraseña.encode()) # Actualizamos la variable hash con nuestra clave cifrada
+contraeña_hash = hash.hexdigest() # Variable que almacena a mi_contraseña pero en hash y en hexadecimal
 
 # Definimos el nombre para la base de datos
 name_DB = 'historial_estado.db'
@@ -111,6 +119,54 @@ def obten_ultim_estado():
         return None
     finally:
         connDB.close()
+
+ITERACIONES = 100000
+
+def crear_contraseña_hash(contraseña : str, salt : bytes = None) -> bytes:
+
+    if salt == None:
+        salt = os.urandom(16)
+
+    contraseña_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        contraseña.encode('utf-18'),
+        salt,
+        ITERACIONES
+    )
+    return salt + contraeña_hash.hex()
+
+def crear_token_usuario(codigo_institucional : str):
+
+    connDB = crear_db()
+    if connDB  == None:
+        return {
+            "EXITO" : False,
+            "Mensaje" : 'No se pudo conectar con la data base'
+        }
+
+    try:
+        cursor = connDB.cursor()
+        cursor.execute('SELECT clave_hash, estado FROM usuarios_modo_operador WHERE codigo_institucional = ?',
+                        (codigo_institucional)
+                    )
+
+        operador_existente = cursor.fetchone()
+        if operador_existente == 'ACTIVO':
+            return {
+                "EXITO" : False,
+                "MENSAJE" : 'Este código institucional ya había sido activado antes'
+            }
+        
+        nueva_clave_texto = secrets.token_urlsafe(32)
+
+        clave_hash_to_db = crear_contraseña_hash(nueva_clave_texto)
+
+    except sql.Error as error:
+        print(f"**ERROR** No se pudo registrar al operador en la Data Base: {error}")
+        return {
+                "EXITO": False,
+                "mensaje": f"Error interno al acceder a la base de datos: {error}"
+                }
 
 if __name__ == '__main__':
         config_DB()
