@@ -5,11 +5,6 @@ import hashlib
 import os
 import secrets
 
-hash = hashlib.sha256 # Variable que usa el algoritmo sha256 de la librería hashlib
-mi_contraseña = "HolaMundo1234" # Variable de nuestra contraseña en texto plano
-hash.update(mi_contraseña.encode()) # Actualizamos la variable hash con nuestra clave cifrada
-contraeña_hash = hash.hexdigest() # Variable que almacena a mi_contraseña pero en hash y en hexadecimal
-
 # Definimos el nombre para la base de datos
 name_DB = 'historial_estado.db'
 
@@ -122,23 +117,25 @@ def obten_ultim_estado():
 
 ITERACIONES = 100000
 
-def crear_contraseña_hash(contraseña : str, salt : bytes = None) -> bytes:
+def crear_contraseña_hash(contraseña : str, salt : bytes = None) -> str:
 
     if salt == None:
         salt = os.urandom(16)
 
     contraseña_hash = hashlib.pbkdf2_hmac(
         'sha256',
-        contraseña.encode('utf-18'),
+        contraseña.encode('utf-8'),
         salt,
         ITERACIONES
     )
-    return salt + contraeña_hash.hex()
+    print("**EXITO** Proceso hash completado")
+    return salt.hex() + contraseña_hash.hex()
 
 def crear_token_usuario(codigo_institucional : str):
 
     connDB = crear_db()
     if connDB  == None:
+        print("No se logró conectar comn la data base ")
         return {
             "EXITO" : False,
             "Mensaje" : 'No se pudo conectar con la data base'
@@ -147,11 +144,20 @@ def crear_token_usuario(codigo_institucional : str):
     try:
         cursor = connDB.cursor()
         cursor.execute('SELECT clave_hash, estado FROM usuarios_modo_operador WHERE codigo_institucional = ?',
-                        (codigo_institucional)
+                        (codigo_institucional,)
                     )
 
         operador_existente = cursor.fetchone()
-        if operador_existente == 'ACTIVO':
+
+        if not operador_existente:
+            print("**ERROR** Código institucional no encontrado **USUARIO NO AUTORIZADO MODO OPERADOR**")
+            return {
+                "EXITO" : False,
+                "MENSAJE" : '**ERROR** El código institucional no es de un usuario autorisado'
+            }
+
+        if operador_existente and operador_existente['estado'] == 'ACTIVO':
+            print("**MENSAJE** Este código institucional ya había sido activado antes")
             return {
                 "EXITO" : False,
                 "MENSAJE" : 'Este código institucional ya había sido activado antes'
@@ -161,12 +167,26 @@ def crear_token_usuario(codigo_institucional : str):
 
         clave_hash_to_db = crear_contraseña_hash(nueva_clave_texto)
 
+        cursor.execute(
+            """UPDATE usuarios_modo_operador SET clave_hash = ?, estado = 'ACTIVO' WHERE codigo_institucional = ?""",
+            (clave_hash_to_db, codigo_institucional)
+        )
+        connDB.commit()
+        print("**EXITO** Usuario ACTIVADO y CLAVE HASH GUARDADA en la data base")
+        print(f"**COMPLETADO** Bienvenido \n Clave de usuario única : {nueva_clave_texto}")
+        return {
+            "EXITO" : True,
+            "MENSAJE" : 'Usuario ACTIVADO y Clave Hash Guardada',
+            "Clave Única del Usuario" : nueva_clave_texto
+        }
     except sql.Error as error:
         print(f"**ERROR** No se pudo registrar al operador en la Data Base: {error}")
         return {
                 "EXITO": False,
                 "mensaje": f"Error interno al acceder a la base de datos: {error}"
                 }
+    finally:
+        connDB.close()
 
 if __name__ == '__main__':
         config_DB()
