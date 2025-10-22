@@ -163,7 +163,7 @@ def crear_token_usuario(codigo_institucional : str):
                 "MENSAJE" : 'Este código institucional ya había sido activado antes'
             }
         
-        nueva_clave_texto = secrets.token_urlsafe(32)
+        nueva_clave_texto = secrets.token_urlsafe(6)
 
         clave_hash_to_db = crear_contraseña_hash(nueva_clave_texto)
 
@@ -187,6 +187,18 @@ def crear_token_usuario(codigo_institucional : str):
                 }
     finally:
         connDB.close()
+
+SALT_SIZE_HEX = 32
+def comprobar_clave_hash(clave_ingresada : str, clave_hash_to_db : str) -> bool:
+    salt_hexadecimal = clave_hash_to_db[:SALT_SIZE_HEX]
+    hash_hexadecimal = clave_hash_to_db[SALT_SIZE_HEX:]
+
+    hash_usuario_bytes = hashlib.pbkdf2_hmac(
+        'sha256',
+        'utf-8',
+        clave_ingresada,
+        ITERACIONES
+    )
 
 if __name__ == '__main__':
         config_DB()

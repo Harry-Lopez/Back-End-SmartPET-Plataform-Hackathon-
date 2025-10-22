@@ -1,4 +1,4 @@
-from data_base import config_DB, guardar_new_status, obten_ultim_estado
+from data_base import config_DB, guardar_new_status, obten_ultim_estado, crear_contraseña_hash, crear_token_usuario
 from flask import Flask, request, jsonify
 import serial
 
@@ -46,6 +46,31 @@ def obtener_status():
         "Mensaje" : "**ERROR** Al obtener los datos"
     }), 204
 
+@app.route('/api/autenticar/operador', methods = ['POST'])
+def autenticacion_operador():
+    datos_usuario = request.json
+    if not datos_usuario:
+        print("**ERROR** No se encontraron datos/datos inválidos")
+        return jsonify({
+            "EXITO" : False,
+            "MENSAJE" : 'No se encontraron datos/datos inválidos'
+        }), 400
+    if 'codigo_institucional' not in datos_usuario:
+        print("**ERROR** No se encuentra el código institucional")
+        return jsonify({
+            "EXITO" : False,
+            "MENSAJE" : 'No se encuentra el código institucional del ususario'
+        }), 400
+    
+    codigo_institucional = datos_usuario.get('codigo_institucional')
+    comprobacion_usuario = crear_token_usuario(codigo_institucional)
+
+    if comprobacion_usuario['EXITO']:
+        return jsonify(comprobacion_usuario), 200
+    else:
+        codigo_http = 500 if 'Error interno' in comprobacion_usuario['MENSAJE'] else 400
+        return jsonify(comprobacion_usuario), codigo_http
+
 # /////////////////////////////////////////////////////////////
 #   Endpoint para cuando la aplicación nos envía una petición
 # /////////////////////////////////////////////////////////////
@@ -73,7 +98,7 @@ def enviarDatosToArduino():
                 "EXITO" : False,
                 "Mensaje" : '**ERROR CRITICO** La temperatura supera los 50.0°C',
                 "Temperatura" : ultima_temperatura,
-                "Comando" : accion,
+                "Comando" : f"{accion} INVALIDO",
                 "Maquina" : maquina
             }), 400
         
