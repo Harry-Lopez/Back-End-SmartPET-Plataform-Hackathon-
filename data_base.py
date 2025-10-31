@@ -8,6 +8,9 @@ import secrets
 # Definimos el nombre para la base de datos
 name_DB = 'historial_estado.db'
 
+# ////////////////////////////
+#   Crear la data base
+# ////////////////////////////
 def crear_db():
     try:
         connDB = sql.connect(name_DB)
@@ -17,6 +20,9 @@ def crear_db():
          print(f"ERROR al intetar conectar la Base de Datos: {error}")
          return None # Retorna como valor a la función que no se creó el archivo
 
+# //////////////////////////////////
+#   Crear tablas en la data base
+# /////////////////////////////////
 def config_DB():
     # Le damos el valor que se retornó de la función crear_db
     connDB = crear_db()
@@ -61,6 +67,9 @@ def config_DB():
             if connDB:
                 connDB.close()
 
+# ///////////////////////////////////////////////////////////////////////
+#   Extraer los datos y guardarlos como último estado de la máquina
+# //////////////////////////////////////////////////////////////////////
 def guardar_new_status(datos : dict[str,any]) ->  bool:
     connDB = crear_db()
      # Comprobamos desde un inicio si hay valores correctos en el JSON enviado por el arduino
@@ -96,6 +105,9 @@ def guardar_new_status(datos : dict[str,any]) ->  bool:
     finally:
          connDB.close()
 
+# /////////////////////////////////////////////
+#   Obtener ultimo estado de la data base
+# ////////////////////////////////////////////
 def obten_ultim_estado():
     connDB = crear_db()
     if not connDB:
@@ -115,8 +127,12 @@ def obten_ultim_estado():
     finally:
         connDB.close()
 
+# Iteraciones para el hash
 ITERACIONES = 100000
 
+# //////////////////////////////////////////////////////////////
+#   Proceso para crear el salt+hash y guardar en data base
+# /////////////////////////////////////////////////////////////
 def crear_contraseña_hash(contraseña : str, salt : bytes = None) -> str:
 
     if salt == None:
@@ -131,6 +147,9 @@ def crear_contraseña_hash(contraseña : str, salt : bytes = None) -> str:
     print("**EXITO** Proceso hash completado")
     return salt.hex() + contraseña_hash.hex()
 
+# //////////////////////////////////////////////////////////////////
+#   Crear la clave segura para el usuario y actualizarlo en db
+# ////////////////////////////////////////////////////////////////
 def crear_token_usuario(codigo_institucional : str):
 
     connDB = crear_db()
@@ -189,7 +208,10 @@ def crear_token_usuario(codigo_institucional : str):
         connDB.close()
 
 SALT_SIZE_HEX = 32
-def comprobar_clave_hash(clave_ingresada : str, clave_hash_to_db : str) -> bool:
+# /////////////////////////////////////////////////////////////
+#   Verificar solo la clave del usuario con la de el en db
+# ////////////////////////////////////////////////////////////
+def verificar_clave_solo_logica(clave_ingresada : str, clave_hash_to_db : str) -> bool:
     salt_hexadecimal = clave_hash_to_db[:SALT_SIZE_HEX]
     hash_almacenado_hex_db = clave_hash_to_db[SALT_SIZE_HEX:]
 
@@ -213,17 +235,13 @@ def comprobar_clave_hash(clave_ingresada : str, clave_hash_to_db : str) -> bool:
 
     if hash_generado_user_hex != hash_almacenado_hex_db:
         print("**ERROR** Clave incorrecta")
-        return{
-            "EXITO" : False,
-            "MENSAJE" : 'Clave incorrecta, has ingresado una clave erronea'
-        }
-    
+        return False
     print("**EXITO** Clave correcta y comprobada")
-    return{
-            "EXITO" : True,
-            "MENSAJE" : 'Clave correcta, Bienvenido a SmartPET'
-        }
+    return True
 
+# ///////////////////////////////////////////////////////
+#   Comprobar su estado, cobtraseña e iniciar sesión
+# ///////////////////////////////////////////////////////
 def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
     connDB = None
     connDB = sql.connect(name_DB)
@@ -252,7 +270,7 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
                 "MENSAJE" : 'No se ha registrado el usuario, intente "Registrarse"'
             }
 
-        if comprobar_clave_hash(clave_usuario, clave_hash):
+        if verificar_clave_solo_logica(clave_usuario, clave_hash):
             datos_usuario_login = {
                 "Nombre" : complet_name_db,
                 "Codigo Institucional" : codigo_institucional,
@@ -275,6 +293,52 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
             "EXITO" : False,
             "ERROR in Log-in" : f'Error: {error}',
             "MENSAJE" : 'No se logró conectar con la data base en Log-in'
+        }
+    finally:
+        if connDB:
+            connDB.close()
+
+# ////////////////////////////
+#   Pre-logica START seguro
+# ////////////////////////////
+def obtener_clave_hash_por_codigo(codigo_institucional: str) -> dict:
+    connDB = crear_db()
+    if connDB is None:
+        return{
+            "EXITO": False, 
+            "MENSAJE": "No se pudo conectar con la base de datos"
+        }
+
+    try:
+        cursor = connDB.cursor()
+        cursor.execute(
+            'SELECT clave_hash, estado FROM usuarios_modo_operador WHERE codigo_institucional = ?',
+            (codigo_institucional,)
+        )
+        row = cursor.fetchone()
+
+        if row is None:
+            return{
+                "EXITO": False, 
+                "MENSAJE": "Código institucional no encontrado"
+            }
+
+        if row['estado'] != 'ACTIVO':
+             return{
+                "EXITO": False, 
+                "MENSAJE": "Usuario no activo, requiere registro/activación"
+            }
+
+        return{
+            "EXITO": True, 
+            "clave_hash": row['clave_hash']
+        }
+
+    except sql.Error as error:
+        print(f"**ERROR** SQL en obtener_clave_hash_por_codigo: {error}")
+        return{
+            "EXITO": False,
+            "MENSAJE": "Error interno del servidor"
         }
     finally:
         if connDB:

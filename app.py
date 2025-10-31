@@ -1,4 +1,4 @@
-from data_base import config_DB, guardar_new_status, obten_ultim_estado, crear_contraseña_hash, crear_token_usuario, comprobar_clave_hash, iniciar_sesion
+from data_base import config_DB, guardar_new_status, obten_ultim_estado, crear_contraseña_hash, crear_token_usuario, verificar_clave_solo_logica, iniciar_sesion
 from flask import Flask, request, jsonify
 import serial
 
