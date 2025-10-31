@@ -1,4 +1,4 @@
-from data_base import config_DB, guardar_new_status, obten_ultim_estado, crear_contraseña_hash, crear_token_usuario
+from data_base import config_DB, guardar_new_status, obten_ultim_estado, crear_contraseña_hash, crear_token_usuario, comprobar_clave_hash, iniciar_sesion
 from flask import Flask, request, jsonify
 import serial
 
@@ -8,8 +8,6 @@ config_DB()
 # __name__ es la variable mágica que python da por defecto a un archivo py que se ejecuta
 app = Flask(__name__)
 
-PUERTO_SERIAL = 'COM99'
-CANT_BAUTIOS = 9600
 
 @app.route('/')
 def pagina_principal():
@@ -45,6 +43,33 @@ def obtener_status():
         "Exito" : False,
         "Mensaje" : "**ERROR** Al obtener los datos"
     }), 204
+
+@app.route('/api/iniciar/sesion', methods = ['POST'])
+def iniciar_sesion_operador():
+    datos_login_usuario = request.json
+    if not datos_login_usuario:
+        print("**ERROR** No se encontraron datos/datos inválidos")
+        return jsonify({
+            "EXITO" : False,
+            "MENSAJE" : 'No se encontraron datos/datos inválidos'
+        }), 400
+    if 'codigo_institucional' and 'clave_ingresada' not in datos_login_usuario:
+        print("**ERROR** No se ingresó el código institucional ni la clave")
+        return jsonify({
+            "EXITO" : False,
+            "MENSAJE" : 'No se ingresó el código institucional y clave, favor de ingresarlo'
+        }), 400
+    
+    codigo_institucional = datos_login_usuario.get('codigo_institucional')
+    clave_usuario_app = datos_login_usuario.get('clave_ingresada')
+
+    comprobacion_login = iniciar_sesion(codigo_institucional, clave_usuario_app)
+
+    if comprobacion_login['EXITO']:
+        return jsonify(comprobacion_login), 200
+    else:
+        codigo_http = 401 if 'Clave incorrecta' in comprobacion_login['MENSAJE'] else 400
+        return jsonify(comprobacion_login), codigo_http
 
 @app.route('/api/autenticar/operador', methods = ['POST'])
 def autenticacion_operador():
@@ -106,7 +131,7 @@ def enviarDatosToArduino():
     mensaje_serial_arduino = f"{accion.upper()} para {maquina.upper()}"
 
     # <<<<--Manejo de errores en serial-->>>>
-    try:
+    """try:
         with serial.Serial(PUERTO_SERIAL, CANT_BAUTIOS, timeout=2) as ser: # ser: palabra clave para serial
             ser.write(mensaje_serial_arduino.encode('utf-8')) # .write : función de envío
             # .encode('utf-8'): convertir el mensaje string a byte para enviarlos
@@ -127,7 +152,7 @@ def enviarDatosToArduino():
             "Recepción de datos" : False,
             "Error" : f"{error}",
             "Mensaje" : f"No se logró enviar datos a la máquina. ***ERROR PUERTO*** : {PUERTO_SERIAL}"
-        }), 500
+        }), 500"""
     
 
 # //////////////////

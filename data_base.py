@@ -135,10 +135,10 @@ def crear_token_usuario(codigo_institucional : str):
 
     connDB = crear_db()
     if connDB  == None:
-        print("No se logró conectar comn la data base ")
+        print("No se logró conectar con la data base ")
         return {
             "EXITO" : False,
-            "Mensaje" : 'No se pudo conectar con la data base'
+            "MENSAJE" : 'No se pudo conectar con la data base'
         }
 
     try:
@@ -183,7 +183,7 @@ def crear_token_usuario(codigo_institucional : str):
         print(f"**ERROR** No se pudo registrar al operador en la Data Base: {error}")
         return {
                 "EXITO": False,
-                "mensaje": f"Error interno al acceder a la base de datos: {error}"
+                "MENSAJE": f"Error interno al acceder a la base de datos: {error}"
                 }
     finally:
         connDB.close()
@@ -191,14 +191,94 @@ def crear_token_usuario(codigo_institucional : str):
 SALT_SIZE_HEX = 32
 def comprobar_clave_hash(clave_ingresada : str, clave_hash_to_db : str) -> bool:
     salt_hexadecimal = clave_hash_to_db[:SALT_SIZE_HEX]
-    hash_hexadecimal = clave_hash_to_db[SALT_SIZE_HEX:]
+    hash_almacenado_hex_db = clave_hash_to_db[SALT_SIZE_HEX:]
+
+    try:
+        salt_bytes = bytes.fromhex(salt_hexadecimal)
+    except ValueError:
+        print("**ERROR** Salt en data base inválido (DB corrupta)")
+        return {
+            "EXITO" : False,
+            "MENSAJE" : 'Error de seguridad interno. Data Base corrupta'
+        }
 
     hash_usuario_bytes = hashlib.pbkdf2_hmac(
         'sha256',
-        'utf-8',
-        clave_ingresada,
+        clave_ingresada.encode('utf-8'),
+        salt_bytes,
         ITERACIONES
     )
+
+    hash_generado_user_hex = hash_usuario_bytes.hex()
+
+    if hash_generado_user_hex != hash_almacenado_hex_db:
+        print("**ERROR** Clave incorrecta")
+        return{
+            "EXITO" : False,
+            "MENSAJE" : 'Clave incorrecta, has ingresado una clave erronea'
+        }
+    
+    print("**EXITO** Clave correcta y comprobada")
+    return{
+            "EXITO" : True,
+            "MENSAJE" : 'Clave correcta, Bienvenido a SmartPET'
+        }
+
+def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
+    connDB = None
+    connDB = sql.connect(name_DB)
+
+    try:
+        cursor = connDB.cursor()
+        cursor.execute(
+            'SELECT clave_hash, estado, puesto, complet_name FROM usuarios_modo_operador WHERE codigo_institucional = ?', 
+            (codigo_institucional, )
+        )
+
+        row = cursor.fetchone()
+        if row == None:
+            print("**ERROR** Código Institucional no encontrado")
+            return {
+                "EXITO" : False, 
+                "MENSAJE" : 'Codigo institucional no registrado en la data base'
+            }
+        
+        clave_hash, estado_db, puesto_db, complet_name_db = row
+
+        if estado_db != 'ACTIVO':
+            print("**ERROR** No se ha iniciado sesión antes, primero registrese con sus datos")
+            return{
+                "EXITO" : False, 
+                "MENSAJE" : 'No se ha registrado el usuario, intente "Registrarse"'
+            }
+
+        if comprobar_clave_hash(clave_usuario, clave_hash):
+            datos_usuario_login = {
+                "Nombre" : complet_name_db,
+                "Codigo Institucional" : codigo_institucional,
+                "Puesto" : puesto_db
+            }
+            print(f"**EXITO** Inicio de sesión exitoso\n{datos_usuario_login}")
+            return{
+                "EXITO" : True,
+                "MENSAJE" : f'Inicio de sesión exitoso\n{datos_usuario_login}'
+            }
+        else:
+            print("**ERROR** Clave incorrecta, inténtelo de nuevo...ahorita")
+            return{
+                "EXITO" : False,
+                "MENSAJE" : 'Contraseña incorrecta, inténtelo de nuevo...ahorita'
+            }
+    except sql.Error as error:
+        print("**ERROR** No se logró conectar con la data base en Log-in")
+        return{
+            "EXITO" : False,
+            "ERROR in Log-in" : f'Error: {error}',
+            "MENSAJE" : 'No se logró conectar con la data base en Log-in'
+        }
+    finally:
+        if connDB:
+            connDB.close()
 
 if __name__ == '__main__':
         config_DB()
