@@ -59,6 +59,18 @@ def config_DB():
             )
             print('Base de datos SQLite inicializada, tabla "usuarios_modo_operador" lista')
 
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS "usuarios_modo_general" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    complet_name TEXT NOT NULL,
+                    contacto TEXT NOT NULL,
+                    clave_hash TEXT,
+                    puesto TEXT DEFAULT 'usuario',
+                    estado TEXT DEFAULT 'PENDIENTE'
+                )"""
+            )
+            print('Base de datos SQLite inicializada, tabla "usuarios_modo_general" lista')
+
             connDB.commit()
             print("**EXITO** Bases de datos inicializadas correctamente")
         except sql.Error as error:
@@ -150,7 +162,7 @@ def crear_contraseña_hash(contraseña : str, salt : bytes = None) -> str:
 # //////////////////////////////////////////////////////////////////
 #   Crear la clave segura para el usuario y actualizarlo en db
 # ////////////////////////////////////////////////////////////////
-def crear_token_usuario(codigo_institucional : str):
+def crear_token_operador(codigo_institucional : str):
 
     connDB = crear_db()
     if connDB  == None:
@@ -207,11 +219,66 @@ def crear_token_usuario(codigo_institucional : str):
     finally:
         connDB.close()
 
+# //////////////////////////////////////////////////////////////////
+#   Crear la clave segura para el usuario y actualizarlo en db
+# ////////////////////////////////////////////////////////////////
+def crear_token_usuario(correo_electronico : str):
+
+    connDB = crear_db()
+    if connDB  == None:
+        print("No se logró conectar con la data base ")
+        return {
+            "EXITO" : False,
+            "MENSAJE" : 'No se pudo conectar con la data base'
+        }
+
+    try:
+        cursor = connDB.cursor()
+        cursor.execute('SELECT clave_hash, estado FROM usuarios_modo_general WHERE contacto = ?',
+                        (correo_electronico,)
+                    )
+
+        usuario_existente = cursor.fetchone()
+
+        if usuario_existente and usuario_existente['estado'] == 'ACTIVO':
+            print("**MENSAJE** Este correo electrónico ya había sido activado antes")
+            return {
+                "EXITO" : False,
+                "MENSAJE" : 'Este correo electrónico ya había sido activado antes'
+            }
+        
+        nueva_clave_texto = secrets.token_urlsafe(6)
+
+        clave_hash_to_db = crear_contraseña_hash(nueva_clave_texto)
+
+        cursor.execute(
+            """UPDATE usuarios_modo_general SET clave_hash = ?, estado = 'ACTIVO' WHERE contacto = ?""",
+            (clave_hash_to_db, correo_electronico)
+        )
+        connDB.commit()
+        print("**EXITO** Usuario ACTIVADO y CLAVE HASH GUARDADA en la data base")
+        print(f"**COMPLETADO** Bienvenido \n Clave de usuario única : {nueva_clave_texto}")
+        return {
+            "EXITO" : True,
+            "MENSAJE" : 'Usuario ACTIVADO y Clave Hash Guardada',
+            "Clave Única del Usuario" : nueva_clave_texto
+        }
+    except sql.Error as error:
+        print(f"**ERROR** No se pudo registrar al usuario en la Data Base: {error}")
+        return {
+                "EXITO": False,
+                "MENSAJE": f"Error interno al acceder a la base de datos: {error}"
+                }
+    finally:
+        connDB.close()
+
 SALT_SIZE_HEX = 32
 # /////////////////////////////////////////////////////////////
 #   Verificar solo la clave del usuario con la de el en db
 # ////////////////////////////////////////////////////////////
 def verificar_clave_solo_logica(clave_ingresada : str, clave_hash_to_db : str) -> bool:
+
+    # <--Extraer de la clave en la db el salt(32 dig) y el hash(clave guardada(resto de dig))-->>
     salt_hexadecimal = clave_hash_to_db[:SALT_SIZE_HEX]
     hash_almacenado_hex_db = clave_hash_to_db[SALT_SIZE_HEX:]
 
@@ -219,11 +286,9 @@ def verificar_clave_solo_logica(clave_ingresada : str, clave_hash_to_db : str) -
         salt_bytes = bytes.fromhex(salt_hexadecimal)
     except ValueError:
         print("**ERROR** Salt en data base inválido (DB corrupta)")
-        return {
-            "EXITO" : False,
-            "MENSAJE" : 'Error de seguridad interno. Data Base corrupta'
-        }
+        return False
 
+    # <<--Convertir la clave escrita por el usuario a hash-->>
     hash_usuario_bytes = hashlib.pbkdf2_hmac(
         'sha256',
         clave_ingresada.encode('utf-8'),
@@ -233,19 +298,22 @@ def verificar_clave_solo_logica(clave_ingresada : str, clave_hash_to_db : str) -
 
     hash_generado_user_hex = hash_usuario_bytes.hex()
 
+    # <<--Comprobar qu ela clave es correcta-->>
     if hash_generado_user_hex != hash_almacenado_hex_db:
         print("**ERROR** Clave incorrecta")
         return False
+    # <<--En este punto la clave resulta ser correcta-->>
     print("**EXITO** Clave correcta y comprobada")
     return True
 
 # ///////////////////////////////////////////////////////
 #   Comprobar su estado, cobtraseña e iniciar sesión
 # ///////////////////////////////////////////////////////
-def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
+def iniciar_sesion_operador_db(codigo_institucional : str, clave_usuario : str):
     connDB = None
     connDB = sql.connect(name_DB)
 
+    # <<--Recuperar los datos de la data base-->>
     try:
         cursor = connDB.cursor()
         cursor.execute(
@@ -254,6 +322,8 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
         )
 
         row = cursor.fetchone()
+
+        # <--Salida temprana si no está el código institucional(usuario)-->>
         if row == None:
             print("**ERROR** Código Institucional no encontrado")
             return {
@@ -261,8 +331,10 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
                 "MENSAJE" : 'Codigo institucional no registrado en la data base'
             }
         
+        # <<--Extraer datos de la fila del usuario-->>
         clave_hash, estado_db, puesto_db, complet_name_db = row
 
+        # <<--Salida temprana si no se ha registrado antes el usuario (PENDIENTE)-->>
         if estado_db != 'ACTIVO':
             print("**ERROR** No se ha iniciado sesión antes, primero registrese con sus datos")
             return{
@@ -270,7 +342,9 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
                 "MENSAJE" : 'No se ha registrado el usuario, intente "Registrarse"'
             }
 
+        # <<--Comprobar con la función si la clave del usuario coinside con la de la db-->>
         if verificar_clave_solo_logica(clave_usuario, clave_hash):
+            # Guardamos los datos del usuario extraídos de la fila de db
             datos_usuario_login = {
                 "Nombre" : complet_name_db,
                 "Codigo Institucional" : codigo_institucional,
@@ -281,12 +355,14 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
                 "EXITO" : True,
                 "MENSAJE" : f'Inicio de sesión exitoso\n{datos_usuario_login}'
             }
+        # <<--Si no es correcta la clave-->>
         else:
             print("**ERROR** Clave incorrecta, inténtelo de nuevo...ahorita")
             return{
                 "EXITO" : False,
                 "MENSAJE" : 'Contraseña incorrecta, inténtelo de nuevo...ahorita'
             }
+    # <<--Comando except si no  se conectó a la data base-->>
     except sql.Error as error:
         print("**ERROR** No se logró conectar con la data base en Log-in")
         return{
@@ -294,6 +370,76 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
             "ERROR in Log-in" : f'Error: {error}',
             "MENSAJE" : 'No se logró conectar con la data base en Log-in'
         }
+    # <<--Cerra la data base-->>
+    finally:
+        if connDB:
+            connDB.close()
+
+# //////////////////////////////////////////////////////////
+#   Comprobar, estado, contraseña y sesion modo ggeneral
+# /////////////////////////////////////////////////////////
+def iniciar_sesion_usuario_db(correo_electronico : str, clave_usuario : str):
+    connDB = None
+    connDB = sql.connect(name_DB)
+
+    # <<--Recuperar los datos de la data base-->>
+    try:
+        cursor = connDB.cursor()
+        cursor.execute(
+            'SELECT clave_hash, estado, puesto, complet_name FROM usuarios_modo_general WHERE contacto = ?', 
+            (correo_electronico, )
+        )
+
+        row = cursor.fetchone()
+
+        # <--Salida temprana si no está el código institucional(usuario)-->>
+        if row == None:
+            print("**ERROR** Medio de contacto no encontrado")
+            return {
+                "EXITO" : False, 
+                "MENSAJE" : 'Medio de contacto no registrado en la data base'
+            }
+        
+        # <<--Extraer datos de la fila del usuario-->>
+        clave_hash, estado_db, puesto_db, complet_name_db = row
+
+        # <<--Salida temprana si no se ha registrado antes el usuario (PENDIENTE)-->>
+        if estado_db != 'ACTIVO':
+            print("**ERROR** No se ha iniciado sesión antes, primero registrese con sus datos")
+            return{
+                "EXITO" : False, 
+                "MENSAJE" : 'No se ha registrado el usuario, intente "Registrarse"'
+            }
+
+        # <<--Comprobar con la función si la clave del usuario coinside con la de la db-->>
+        if verificar_clave_solo_logica(clave_usuario, clave_hash):
+            # Guardamos los datos del usuario extraídos de la fila de db
+            datos_usuario_login = {
+                "Nombre" : complet_name_db,
+                "Contacto" : correo_electronico,
+                "Puesto" : puesto_db
+            }
+            print(f"**EXITO** Inicio de sesión exitoso\n{datos_usuario_login}")
+            return{
+                "EXITO" : True,
+                "MENSAJE" : f'Inicio de sesión exitoso\n{datos_usuario_login}'
+            }
+        # <<--Si no es correcta la clave-->>
+        else:
+            print("**ERROR** Clave incorrecta, inténtelo de nuevo...ahorita")
+            return{
+                "EXITO" : False,
+                "MENSAJE" : 'Contraseña incorrecta, inténtelo de nuevo...ahorita'
+            }
+    # <<--Comando except si no  se conectó a la data base-->>
+    except sql.Error as error:
+        print("**ERROR** No se logró conectar con la data base en Log-in")
+        return{
+            "EXITO" : False,
+            "ERROR in Log-in" : f'Error: {error}',
+            "MENSAJE" : 'No se logró conectar con la data base en Log-in'
+        }
+    # <<--Cerra la data base-->>
     finally:
         if connDB:
             connDB.close()
@@ -301,8 +447,12 @@ def iniciar_sesion(codigo_institucional : str, clave_usuario : str):
 # ////////////////////////////
 #   Pre-logica START seguro
 # ////////////////////////////
+
+# <<--Retorna la clave hash de la db si fué exitoso-->>
 def obtener_clave_hash_por_codigo(codigo_institucional: str) -> dict:
+    # <<--Conectar  a la data  base-->>
     connDB = crear_db()
+    # <<--Salida temprana-->>
     if connDB is None:
         return{
             "EXITO": False, 
@@ -317,21 +467,23 @@ def obtener_clave_hash_por_codigo(codigo_institucional: str) -> dict:
         )
         row = cursor.fetchone()
 
+        # <<--Salida temprana si no hay ninguna fila con el código institucional-->>
         if row is None:
             return{
                 "EXITO": False, 
                 "MENSAJE": "Código institucional no encontrado"
             }
-
+        # <<--Salida temprana si el usuario no se ha registrado antes-->>
         if row['estado'] != 'ACTIVO':
              return{
                 "EXITO": False, 
                 "MENSAJE": "Usuario no activo, requiere registro/activación"
             }
-
+        # <<--En este punto fué exitoso el log-in-->>
         return{
             "EXITO": True, 
-            "clave_hash": row['clave_hash']
+            # Muestra lo que se extrajo de la fila (salt + hash)
+            "clave_hash": row['clave_hash'] 
         }
 
     except sql.Error as error:
@@ -344,6 +496,10 @@ def obtener_clave_hash_por_codigo(codigo_institucional: str) -> dict:
         if connDB:
             connDB.close()
 
+
+# //////////////////////
+#   Ejecutar archivo
+# /////////////////////
 if __name__ == '__main__':
         config_DB()
         prueba_datos= {
