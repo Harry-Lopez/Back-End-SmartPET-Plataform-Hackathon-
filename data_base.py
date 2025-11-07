@@ -222,7 +222,7 @@ def crear_token_operador(codigo_institucional : str):
 # //////////////////////////////////////////////////////////////////
 #   Crear la clave segura para el usuario y actualizarlo en db
 # ////////////////////////////////////////////////////////////////
-def crear_token_usuario(correo_electronico : str):
+def crear_token_usuario(correo_electronico : str, complete_name : str):
 
     connDB = crear_db()
     if connDB  == None:
@@ -240,6 +240,25 @@ def crear_token_usuario(correo_electronico : str):
 
         usuario_existente = cursor.fetchone()
 
+        if not usuario_existente:
+            print("**USUARIO NO REGISTRADO** Insertando nuevo usuario y generando clave")
+            nueva_clave_texto = secrets.token_urlsafe(6)
+
+            clave_hash_to_db = crear_contraseña_hash(nueva_clave_texto)
+
+            cursor.execute(
+                """INSERT INTO usuarios_modo_general (complet_name, contacto, clave_hash, puesto, estado) VALUES(?, ?, ?, ?, ?)""",
+                (complete_name, correo_electronico, clave_hash_to_db, 'usuario', 'ACTIVO')
+            )
+            connDB.commit()
+            print("**EXITO** Usuario ACTIVADO, GUARDADO y CLAVE HASH GUARDADA en la data base")
+            print(f"**COMPLETADO** Bienvenido \n Clave de usuario única : {nueva_clave_texto}")
+            return {
+                "EXITO" : True,
+                "MENSAJE" : 'Usuario ACTIVADO, GUARDADO y Clave Hash Guardada',
+                "Clave Única del Usuario" : nueva_clave_texto
+            }
+
         if usuario_existente and usuario_existente['estado'] == 'ACTIVO':
             print("**MENSAJE** Este correo electrónico ya había sido activado antes")
             return {
@@ -247,22 +266,6 @@ def crear_token_usuario(correo_electronico : str):
                 "MENSAJE" : 'Este correo electrónico ya había sido activado antes'
             }
         
-        nueva_clave_texto = secrets.token_urlsafe(6)
-
-        clave_hash_to_db = crear_contraseña_hash(nueva_clave_texto)
-
-        cursor.execute(
-            """UPDATE usuarios_modo_general SET clave_hash = ?, estado = 'ACTIVO' WHERE contacto = ?""",
-            (clave_hash_to_db, correo_electronico)
-        )
-        connDB.commit()
-        print("**EXITO** Usuario ACTIVADO y CLAVE HASH GUARDADA en la data base")
-        print(f"**COMPLETADO** Bienvenido \n Clave de usuario única : {nueva_clave_texto}")
-        return {
-            "EXITO" : True,
-            "MENSAJE" : 'Usuario ACTIVADO y Clave Hash Guardada',
-            "Clave Única del Usuario" : nueva_clave_texto
-        }
     except sql.Error as error:
         print(f"**ERROR** No se pudo registrar al usuario en la Data Base: {error}")
         return {

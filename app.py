@@ -92,7 +92,8 @@ def autenticacion_usuario_dar_clave():
         }), 400
     
     correo_electronico = datos_usuario.get('correo_electronico')
-    comprobacion_usuario = crear_token_usuario(correo_electronico)
+    nombre_usuario = datos_usuario.get('complete_name')
+    comprobacion_usuario = crear_token_usuario(correo_electronico, nombre_usuario)
 
     if comprobacion_usuario['EXITO']:
         return jsonify(comprobacion_usuario), 200
