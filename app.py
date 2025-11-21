@@ -1,4 +1,4 @@
-from data_base import config_DB, guardar_new_status, obten_ultim_estado, crear_contraseña_hash, crear_token_operador, crear_token_usuario, verificar_clave_solo_logica, iniciar_sesion_operador_db, iniciar_sesion_usuario_db, obtener_clave_hash_por_codigo
+from data_base import config_DB, guardar_new_status, guardar_new_status_calentador, obten_ultim_estado, obten_ultim_estado_calentador, crear_contraseña_hash, crear_token_operador, crear_token_usuario, verificar_clave_solo_logica, iniciar_sesion_operador_db, iniciar_sesion_usuario_db, obtener_clave_hash_por_codigo
 from flask import Flask, request, jsonify
 import serial
 
@@ -13,8 +13,8 @@ app = Flask(__name__)
 def pagina_principal():
     return "Prueba 3 de código básico Flask por P1"
 
-@app.route('/api/arduino/to/backend', methods = ['POST'])
-def enviarDatosToBackend():
+@app.route('/api/arduino/backend/m1', methods = ['POST'])
+def enviarDatosToBackend_m1():
     datos_recibidos = request.json
 
     if datos_recibidos:
@@ -33,9 +33,40 @@ def enviarDatosToBackend():
         "Mensaje" : '**ERROR** datos no recibidos o nulos'
     })
 
-@app.route('/api/status/get/backend', methods = ['GET'])
-def obtener_status():
+@app.route('/api/arduino/backend/m2', methods = ['POST'])
+def enviarDatosToBackend_m2():
+    datos_recibidos = request.json
+
+    if datos_recibidos:
+        if guardar_new_status_calentador(datos_recibidos):
+            return jsonify({
+                "Exito" : True,
+                "Mensaje" : 'Estado guardado exitosamente en la data base'
+            }), 200
+        else:
+            return jsonify({
+                "Exito" : False,
+                "Mensaje" : '**ERROR** Al guardar los nuevos datos'
+            }), 500
+    return jsonify({
+        "Exito" : False,
+        "Mensaje" : '**ERROR** datos no recibidos o nulos'
+    })
+
+@app.route('/api/status/backend/m1', methods = ['GET'])
+def obtener_status_m1():
     ultimo_estado = obten_ultim_estado()
+    if ultimo_estado:
+        return jsonify(ultimo_estado), 200
+    
+    return jsonify({
+        "Exito" : False,
+        "Mensaje" : "**ERROR** Al obtener los datos"
+    }), 204
+
+@app.route('/api/status/backend/m2', methods = ['GET'])
+def obtener_status_m2():
+    ultimo_estado = obten_ultim_estado_calentador()
     if ultimo_estado:
         return jsonify(ultimo_estado), 200
     
@@ -161,6 +192,14 @@ def iniciar_sesion_usuario_general():
         codigo_http = 401 if 'Clave incorrecta' in comprobacion_login['MENSAJE'] else 400
         return jsonify(comprobacion_login), codigo_http
 
+#  //////////////////////////////////
+#   Mapeo de la máquina solicitada
+# //////////////////////////////////
+MACHINES_STATUS_FUNCTION = {
+    'TRITURADORA': obten_ultim_estado,
+    'CALENTADORA': obten_ultim_estado_calentador
+}
+
 # /////////////////////////////////////////////////////////////
 #   Endpoint para cuando la aplicación nos envía una petición
 # /////////////////////////////////////////////////////////////
@@ -175,9 +214,18 @@ def enviarDatosToArduino():
             "Mensaje" : "Comando inválido/Comando vacío"
         }), 400
 
-    accion = comando_arduino.get('accion')
-    maquina = comando_arduino.get('maquina')
+    accion = comando_arduino.get('accion').upper()
+    maquina = comando_arduino.get('maquina').upper()
     codigo_institucional = comando_arduino.get('codigo_institucional')
+
+    # <<--SELECCIÓN DE LA FUNCIÓN DE ESTADO-->>
+    obtener_estado_funcion = MACHINES_STATUS_FUNCTION.get(maquina)
+    # <<--MANEJO DE ERRORES SI NO RECONOCE LA MAQUINA-->>
+    if not obtener_estado_funcion:
+        return jsonify({
+            "EXITO": False,
+            "Mensaje": f"**ERROR** Máquina '{maquina}' no reconocida. Máquinas válidas: {list(MACHINES_STATUS_FUNCTION.keys())}"
+        }), 400
 
     if accion.upper() == 'START':
 
@@ -211,7 +259,7 @@ def enviarDatosToArduino():
                 "Mensaje" : '**ERROR** Operador no identificado, inténntelo de nuevo'
             })
 
-        ultimo_estado = obten_ultim_estado()
+        ultimo_estado = obtener_estado_funcion()
         # <<--Comprobar el estado de la máquina-->>
         if ultimo_estado and ultimo_estado.get('temperatura', 0.0) >= 50.0:
             ultima_temperatura = ultimo_estado.get('temperatura')

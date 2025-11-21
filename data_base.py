@@ -47,6 +47,17 @@ def config_DB():
             print('Base de datos SQLite inicializada, tabla "historial_estado" lista')
 
             cursor.execute(
+                """CREATE TABLE IF NOT EXISTS "historial_estado_calentador" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    register_time TEXT NOT NULL,
+                    temperatura REAL NOT NULL,
+                    nivel_agua TEXT NOT NULL,
+                    estado_motor TEXT NOT NULL
+                )"""
+            )
+            print('Base de datos SQLite inicializada, tabla "historial_estado_calentador" lista')
+
+            cursor.execute(
                 """CREATE TABLE IF NOT EXISTS "usuarios_modo_operador" (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     complet_name TEXT NOT NULL,
@@ -78,6 +89,44 @@ def config_DB():
         finally:
             if connDB:
                 connDB.close()
+
+# ///////////////////////////////////////////////////////////////////////
+#   Extraer los datos y guardarlos como último estado de la máquina 2
+# //////////////////////////////////////////////////////////////////////
+def guardar_new_status_calentador(datos : dict[str,any]) ->  bool:
+    connDB = crear_db()
+     # Comprobamos desde un inicio si hay valores correctos en el JSON enviado por el arduino
+    if not connDB:
+        print("**ERROR** No se logró conectar con la abse de datos")
+        return False
+    
+    current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+
+    try:
+        temperatura = datos['temperatura']
+        nivel_agua = datos['nivel_agua'].upper()
+        estado_motor = datos['estado_motor'].upper()
+        print("**EXITO AL RECIBIR DATOS**")
+    except KeyError as error:
+        print(f"**ERROR DE DATOS** {error}")
+        connDB.close()
+        return False
+
+    try:
+        cursor = connDB.cursor()
+        cursor.execute(
+             """INSERT INTO historial_estado_calentador (register_time, temperatura, nivel_agua, estado_motor) 
+               VALUES (?, ?, ?, ?)""",
+            (current_time, temperatura, nivel_agua, estado_motor)
+        )
+        connDB.commit()
+        print(f"**EXITO** Datos guardados en la base de datos SQLite \n Temperatura={temperatura} \n Agua={nivel_agua} \n Motor={estado_motor}")
+        return True
+    except sql.Error as error:
+         print(f"**ERROR** {error} \n ***No se logró guardar los datos***")
+         return False
+    finally:
+         connDB.close()
 
 # ///////////////////////////////////////////////////////////////////////
 #   Extraer los datos y guardarlos como último estado de la máquina
@@ -128,6 +177,28 @@ def obten_ultim_estado():
     try:
         cursor = connDB.cursor()
         cursor.execute("SELECT * FROM historial_estado ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+
+        if row:
+            return dict(row)
+        return None
+    except sql.Error as error:
+        print(f"**ERROR AL RECUPERAR EL ÚLTIMO ESTADO**: {error}")
+        return None
+    finally:
+        connDB.close()
+
+# /////////////////////////////////////////////
+#   Obtener ultimo estado de la data base
+# ////////////////////////////////////////////
+def obten_ultim_estado_calentador():
+    connDB = crear_db()
+    if not connDB:
+        return None
+
+    try:
+        cursor = connDB.cursor()
+        cursor.execute("SELECT * FROM historial_estado_calentador ORDER BY id DESC LIMIT 1")
         row = cursor.fetchone()
 
         if row:
